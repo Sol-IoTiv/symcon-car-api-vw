@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3
+
+- Verwendet vorhandenes System-cURL mit HTTP/2, wenn die PHP-Erweiterung des Symcon-Servers kein HTTP/2 anbietet.
+
 ## 0.2
 
 - Manueller Ladeabruf für den Volkswagen ID.3 über myVolkswagen mit Anzeige des Ist-SoC und des Abrufstatus.

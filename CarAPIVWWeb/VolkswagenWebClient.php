@@ -8,11 +8,18 @@ final class CarAPIVWWebClient
     private const AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36';
 
     private $curl;
+    private array $systemCookies;
 
     public function __construct(array $cookies)
     {
         if (!function_exists('curl_version') || (curl_version()['features'] & CURL_VERSION_HTTP2) === 0) {
-            throw new RuntimeException('Für den VW-Abruf braucht PHP eine cURL-Version mit HTTP/2.');
+            $this->curl = null;
+            $this->systemCookies = $cookies;
+            $version = $this->runCurl(['--version']);
+            if (preg_match('/^Features:\s.*\bHTTP2\b/m', $version) !== 1) {
+                throw new RuntimeException('Der VW-Abruf braucht eine cURL-Version mit HTTP/2.');
+            }
+            return;
         }
         $this->curl = curl_init();
         curl_setopt_array($this->curl, [
@@ -32,6 +39,9 @@ final class CarAPIVWWebClient
 
     public function cookies(): array
     {
+        if ($this->curl === null) {
+            return $this->systemCookies;
+        }
         return curl_getinfo($this->curl, CURLINFO_COOKIELIST) ?: [];
     }
 
@@ -184,6 +194,9 @@ final class CarAPIVWWebClient
         }
         $location = '';
         $headers[] = 'Accept-Language: de-DE';
+        if ($this->curl === null) {
+            return $this->systemRequest($url, $form, $headers);
+        }
         curl_setopt_array($this->curl, [
             CURLOPT_URL => $url, CURLOPT_HTTPHEADER => $headers,
             CURLOPT_HEADERFUNCTION => static function ($curl, string $line) use (&$location): int {
@@ -204,6 +217,75 @@ final class CarAPIVWWebClient
             throw new RuntimeException('VW-Verbindung fehlgeschlagen (cURL ' . curl_errno($this->curl) . ').');
         }
         return ['url' => $url, 'status' => curl_getinfo($this->curl, CURLINFO_RESPONSE_CODE), 'location' => $location, 'body' => $body];
+    }
+
+    private function systemRequest(string $url, ?array $form, array $headers): array
+    {
+        $jar = tempnam(sys_get_temp_dir(), 'symcon-vw-');
+        if ($jar === false) {
+            throw new RuntimeException('Die temporäre VW-Sitzung konnte nicht vorbereitet werden.');
+        }
+        try {
+            if (file_put_contents($jar, "# Netscape HTTP Cookie File\n" . implode("\n", $this->systemCookies) . "\n") === false) {
+                throw new RuntimeException('Die temporäre VW-Sitzung konnte nicht geschrieben werden.');
+            }
+            $options = ['url' => $url, 'cookie' => $jar, 'cookie-jar' => $jar, 'user-agent' => self::AGENT];
+            if ($form !== null) {
+                $options['data'] = http_build_query($form);
+            }
+            $config = '';
+            foreach ($options as $name => $value) {
+                $config .= $this->curlOption($name, $value);
+            }
+            foreach ($headers as $header) {
+                $config .= $this->curlOption('header', $header);
+            }
+
+            $output = $this->runCurl([
+                '--http2', '--proto', '=https', '--silent', '--compressed', '--connect-timeout', '5',
+                '--max-time', '15', '--write-out', '\n%{http_code}\n%{redirect_url}', '--config', '-'
+            ], $config);
+            $cookies = file($jar, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            if (is_array($cookies)) {
+                $this->systemCookies = array_values(array_filter($cookies, static function (string $line): bool {
+                    return !str_starts_with($line, '#') || str_starts_with($line, '#HttpOnly_');
+                }));
+            }
+            if (preg_match('/\n(\d{3})\n([^\r\n]*)$/D', $output, $metadata, PREG_OFFSET_CAPTURE) !== 1) {
+                throw new RuntimeException('Die HTTP-Antwort von VW konnte nicht gelesen werden.');
+            }
+            return ['url' => $url, 'status' => (int) $metadata[1][0], 'location' => $metadata[2][0],
+                'body' => substr($output, 0, $metadata[0][1])];
+        } finally {
+            unlink($jar);
+        }
+    }
+
+    private function runCurl(array $arguments, string $input = ''): string
+    {
+        if (!function_exists('proc_open')) {
+            throw new RuntimeException('System-cURL ist aus Symcon nicht verfügbar.');
+        }
+        $process = @proc_open(array_merge(['curl', '--disable'], $arguments), [
+            0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['redirect', 1]
+        ], $pipes, null, null, ['bypass_shell' => true]);
+        if (!is_resource($process)) {
+            throw new RuntimeException('System-cURL konnte in Symcon nicht gestartet werden.');
+        }
+        fwrite($pipes[0], $input);
+        fclose($pipes[0]);
+        $output = stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        $exit = proc_close($process);
+        if ($exit !== 0 || $output === false) {
+            throw new RuntimeException('System-cURL konnte VW nicht abrufen (Exit-Code ' . $exit . ').');
+        }
+        return $output;
+    }
+
+    private function curlOption(string $name, string $value): string
+    {
+        return $name . ' = "' . addcslashes($value, "\\\"\n\r\t\v") . '"' . "\n";
     }
 
     private function resolve(string $base, string $location): string

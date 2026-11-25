@@ -1,6 +1,6 @@
 # Car API VW für IP-Symcon
 
-Das Modul fragt den Ladezustand eines Volkswagen ID.3 direkt bei der Webschnittstelle von myVolkswagen ab. Es verwendet eine Sitzung deiner Volkswagen ID und benötigt Symcon 7.1 oder neuer sowie PHP-cURL mit HTTP/2. Volkswagen kann den Webzugriff jederzeit ändern.
+Das Modul fragt den Ladezustand eines Volkswagen ID.3 direkt bei der Webschnittstelle von myVolkswagen ab. Es verwendet eine Sitzung deiner Volkswagen ID und benötigt Symcon 7.1 oder neuer sowie cURL mit HTTP/2. Wenn die PHP-Erweiterung kein HTTP/2 unterstützt, verwendet das Modul das vorhandene System-cURL. Volkswagen kann den Webzugriff jederzeit ändern.
 
 ## Test in Symcon
 

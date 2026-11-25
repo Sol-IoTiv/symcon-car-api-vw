@@ -1,7 +1,9 @@
 {
   "elements": [
     {"type": "CheckBox", "name": "TestEnabled", "caption": "VW-Test aktivieren"},
-    {"type": "ValidationTextBox", "name": "VehicleVIN", "caption": "Fahrgestellnummer (FIN)"}
+    {"type": "ValidationTextBox", "name": "VehicleVIN", "caption": "Fahrgestellnummer (FIN)"},
+    {"type": "CheckBox", "name": "AutoPollEnabled", "caption": "Automatischen Abruf einschalten"},
+    {"type": "NumberSpinner", "name": "PollIntervalMinutes", "caption": "Abrufintervall", "suffix": "Minuten", "minimum": 5, "maximum": 120}
   ],
   "actions": [
     {"type": "ValidationTextBox", "name": "LoginEmail", "caption": "E-Mail der Volkswagen ID"},

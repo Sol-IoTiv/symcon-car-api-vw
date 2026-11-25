@@ -12,6 +12,10 @@ Das Modul fragt den Ladezustand eines Volkswagen ID.3 direkt bei der Webschnitts
 
 Ein erfolgreicher Abruf liefert den zuletzt bei VW verfügbaren Fahrzeugzustand. Die Instanz zeigt zusätzlich den Abrufzeitpunkt und, falls im Akkustatus verfügbar, den Fahrzeugzeitpunkt an. Der Wert `0` im Zeitstempel steht für einen unbekannten Zeitpunkt. Das Feld `Ist-SoC vorhanden` zeigt an, ob der letzte Abruf einen gültigen Ladezustand geliefert hat.
 
+## Automatischer Abruf
+
+In der Instanzkonfiguration kann der automatische Abruf eingeschaltet und ein Intervall von 5 bis 120 Minuten eingestellt werden. Der Schalter ist standardmäßig aus, das voreingestellte Intervall beträgt 5 Minuten. Der manuelle Abruf bleibt verfügbar. Bei einer VW-Antwort mit HTTP 429 wartet das Modul gemäß `Retry-After` oder bei fehlender Angabe mindestens 5 Minuten bis zum nächsten Abruf.
+
 Die Implementierung orientiert sich am Webabruf der MIT-lizenzierten Integration [Volkswagen Connect von Rafael Hutter](https://github.com/rafaelhutter/ha-volkswagen-connect).
 
 MIT-Lizenz.

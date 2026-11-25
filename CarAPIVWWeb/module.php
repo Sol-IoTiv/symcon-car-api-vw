@@ -24,15 +24,20 @@ class CarAPIVWWeb extends IPSModule
         parent::Create();
         $this->RegisterPropertyBoolean('TestEnabled', false);
         $this->RegisterPropertyString('VehicleVIN', '');
+        $this->RegisterPropertyBoolean('AutoPollEnabled', false);
+        $this->RegisterPropertyInteger('PollIntervalMinutes', 5);
         $this->RegisterAttributeString('VwCookies', '[]');
         $this->RegisterAttributeString('VwChallenge', '');
         $this->RegisterAttributeString('ConfiguredVIN', '');
+        $this->RegisterAttributeInteger('PollBlockedUntil', 0);
+        $this->RegisterTimer('VwPoll', 0, 'SCAVW_Poll(' . $this->InstanceID . ');');
     }
 
     public function ApplyChanges(): void
     {
         parent::ApplyChanges();
         if (!$this->ReadPropertyBoolean('TestEnabled')) {
+            $this->SetTimerInterval('VwPoll', 0);
             return;
         }
         $this->RegisterVariableInteger('StateOfCharge', 'Ist-SoC', '~Intensity.100', 10);
@@ -66,6 +71,18 @@ class CarAPIVWWeb extends IPSModule
             }
             $position += 10;
         }
+        $minutes = max(5, min(120, $this->ReadPropertyInteger('PollIntervalMinutes')));
+        $this->SetTimerInterval('VwPoll', $this->ReadPropertyBoolean('AutoPollEnabled') ? $minutes * 60000 : 0);
+    }
+
+    public function Poll(): void
+    {
+        if (!$this->ReadPropertyBoolean('TestEnabled') || !$this->ReadPropertyBoolean('AutoPollEnabled')
+            || $this->ReadAttributeString('VwCookies') === '[]' || $this->ReadAttributeString('VwChallenge') !== ''
+            || $this->ReadAttributeInteger('PollBlockedUntil') > time()) {
+            return;
+        }
+        $this->ReadCharging();
     }
 
     public function Login(string $Email, string $Password): string
@@ -145,27 +162,31 @@ class CarAPIVWWeb extends IPSModule
             'ChargingType' => $this->displayStatus($charging['chargeType'] ?? null),
             'ChargingMode' => $this->displayStatus($charging['chargeMode'] ?? null)
         ];
+        foreach ($values as $ident => $value) {
+            $this->SetValue($ident, $value);
+        }
 
         try {
             $maintenance = $client->maintenance($vin);
+        } catch (CarAPIVWRateLimit $error) {
+            throw $error;
         } catch (RuntimeException $error) {
             $maintenance = [];
             $messages[] = 'Servicedaten: ' . $error->getMessage() . '.';
         }
-        $values['Odometer'] = $this->measurement($maintenance['mileage_km'] ?? null, 'km');
-        $values['InspectionDays'] = $this->measurement($maintenance['inspectionDue_days'] ?? null, 'Tage');
-        $values['InspectionDistance'] = $this->measurement($maintenance['inspectionDue_km'] ?? null, 'km');
+        $this->SetValue('Odometer', $this->measurement($maintenance['mileage_km'] ?? null, 'km'));
+        $this->SetValue('InspectionDays', $this->measurement($maintenance['inspectionDue_days'] ?? null, 'Tage'));
+        $this->SetValue('InspectionDistance', $this->measurement($maintenance['inspectionDue_km'] ?? null, 'km'));
 
         try {
             $warningLights = $client->warningLights($vin);
+        } catch (CarAPIVWRateLimit $error) {
+            throw $error;
         } catch (RuntimeException $error) {
             $warningLights = null;
             $messages[] = 'Warnleuchten: ' . $error->getMessage() . '.';
         }
-        $values['WarningLights'] = $warningLights === null ? 'unbekannt' : (string) $warningLights;
-        foreach ($values as $ident => $value) {
-            $this->SetValue($ident, $value);
-        }
+        $this->SetValue('WarningLights', $warningLights === null ? 'unbekannt' : (string) $warningLights);
         return implode(' ', $messages);
     }
 
@@ -227,9 +248,22 @@ class CarAPIVWWeb extends IPSModule
         }
         $client = null;
         try {
+            if ($this->ReadAttributeInteger('PollBlockedUntil') > time()) {
+                $message = 'VW begrenzt gerade die Anfragen (HTTP 429). Der Abruf pausiert.';
+                return $message;
+            }
             $cookies = $newSession ? [] : json_decode($this->ReadAttributeString('VwCookies'), true);
             $client = new CarAPIVWWebClient(is_array($cookies) ? $cookies : []);
             $message = $operation($client);
+        } catch (CarAPIVWRateLimit $error) {
+            $this->WriteAttributeInteger('PollBlockedUntil', time() + $error->retryAfterSeconds);
+            $message = $error->getMessage();
+        } catch (CarAPIVWLoginRequired $error) {
+            $client = null;
+            $this->WriteAttributeString('VwCookies', '[]');
+            $this->WriteAttributeString('VwChallenge', '');
+            $this->SetValue('StateOfChargeAvailable', false);
+            $message = $error->getMessage();
         } catch (RuntimeException $error) {
             $message = $error->getMessage();
             if ($reading) {

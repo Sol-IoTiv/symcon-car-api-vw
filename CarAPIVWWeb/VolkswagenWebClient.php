@@ -1,5 +1,17 @@
 <?php
 
+final class CarAPIVWLoginRequired extends RuntimeException
+{
+}
+
+final class CarAPIVWRateLimit extends RuntimeException
+{
+    public function __construct(public int $retryAfterSeconds)
+    {
+        parent::__construct('VW begrenzt gerade die Anfragen (HTTP 429). Der Abruf pausiert.');
+    }
+}
+
 final class CarAPIVWWebClient
 {
     private const PORTAL = 'https://www.volkswagen.de';
@@ -85,9 +97,12 @@ final class CarAPIVWWebClient
         if (in_array($response['status'], [301, 302, 303, 307, 308, 401, 412, 428], true)) {
             $challenge = $this->finishLogin($this->follow($this->request($this->loginUrl())));
             if ($challenge !== null) {
-                throw new RuntimeException('VW verlangt eine erneute Anmeldung im Modulformular.');
+                throw new CarAPIVWLoginRequired('VW verlangt eine erneute Anmeldung im Modulformular.');
             }
             $response = $this->vehicleResponse('vwag-weconnect', $vin, 'charging/status');
+            if ($response['status'] === 401) {
+                throw new CarAPIVWLoginRequired('VW verlangt eine erneute Anmeldung im Modulformular.');
+            }
         }
         if ($response['status'] !== 200) {
             throw new RuntimeException('VW-Ladeabruf fehlgeschlagen (HTTP ' . $response['status'] . ').');
@@ -164,7 +179,7 @@ final class CarAPIVWWebClient
         parse_str(parse_url($page['url'], PHP_URL_QUERY) ?? '', $query);
         if (isset($query['error']) || $page['status'] !== 200 || $host !== 'www.volkswagen.de'
             || !str_ends_with($path, '/myvolkswagen.html')) {
-            throw new RuntimeException('VW-Anmeldung nicht abgeschlossen. Prüfe den Login und offene Bestätigungen in myVolkswagen.');
+            throw new CarAPIVWLoginRequired('VW-Anmeldung nicht abgeschlossen. Prüfe den Login und offene Bestätigungen in myVolkswagen.');
         }
         return null;
     }
@@ -218,15 +233,21 @@ final class CarAPIVWWebClient
             throw new RuntimeException('VW hat auf ein unbekanntes Ziel weitergeleitet.');
         }
         $location = '';
+        $retryAfter = '';
         $headers[] = 'Accept-Language: de-DE';
         if ($this->curl === null) {
             return $this->systemRequest($url, $form, $headers);
         }
         curl_setopt_array($this->curl, [
             CURLOPT_URL => $url, CURLOPT_HTTPHEADER => $headers,
-            CURLOPT_HEADERFUNCTION => static function ($curl, string $line) use (&$location): int {
-                if (strncasecmp($line, 'Location:', 9) === 0) {
+            CURLOPT_HEADERFUNCTION => static function ($curl, string $line) use (&$location, &$retryAfter): int {
+                if (str_starts_with($line, 'HTTP/')) {
+                    $location = '';
+                    $retryAfter = '';
+                } elseif (strncasecmp($line, 'Location:', 9) === 0) {
                     $location = trim(substr($line, 9));
+                } elseif (strncasecmp($line, 'Retry-After:', 12) === 0) {
+                    $retryAfter = trim(substr($line, 12));
                 }
                 return strlen($line);
             }
@@ -241,7 +262,9 @@ final class CarAPIVWWebClient
         if ($body === false) {
             throw new RuntimeException('VW-Verbindung fehlgeschlagen (cURL ' . curl_errno($this->curl) . ').');
         }
-        return ['url' => $url, 'status' => curl_getinfo($this->curl, CURLINFO_RESPONSE_CODE), 'location' => $location, 'body' => $body];
+        $status = curl_getinfo($this->curl, CURLINFO_RESPONSE_CODE);
+        $this->checkRateLimit($status, $retryAfter);
+        return ['url' => $url, 'status' => $status, 'location' => $location, 'body' => $body];
     }
 
     private function systemRequest(string $url, ?array $form, array $headers): array
@@ -250,11 +273,19 @@ final class CarAPIVWWebClient
         if ($jar === false) {
             throw new RuntimeException('Die temporäre VW-Sitzung konnte nicht vorbereitet werden.');
         }
+        $responseHeaders = false;
         try {
+            $responseHeaders = tempnam(sys_get_temp_dir(), 'symcon-vw-response-');
+            if ($responseHeaders === false) {
+                throw new RuntimeException('Die temporären VW-Antwortdaten konnten nicht vorbereitet werden.');
+            }
             if (file_put_contents($jar, "# Netscape HTTP Cookie File\n" . implode("\n", $this->systemCookies) . "\n") === false) {
                 throw new RuntimeException('Die temporäre VW-Sitzung konnte nicht geschrieben werden.');
             }
-            $options = ['url' => $url, 'cookie' => $jar, 'cookie-jar' => $jar, 'user-agent' => self::AGENT];
+            $options = [
+                'url' => $url, 'cookie' => $jar, 'cookie-jar' => $jar,
+                'user-agent' => self::AGENT, 'dump-header' => $responseHeaders
+            ];
             if ($form !== null) {
                 $options['data'] = http_build_query($form);
             }
@@ -279,11 +310,31 @@ final class CarAPIVWWebClient
             if (preg_match('/\n(\d{3})\n([^\r\n]*)$/D', $output, $metadata, PREG_OFFSET_CAPTURE) !== 1) {
                 throw new RuntimeException('Die HTTP-Antwort von VW konnte nicht gelesen werden.');
             }
-            return ['url' => $url, 'status' => (int) $metadata[1][0], 'location' => $metadata[2][0],
+            $status = (int) $metadata[1][0];
+            if ($status === 429) {
+                $rawHeaders = file_get_contents($responseHeaders) ?: '';
+                preg_match_all('/^Retry-After:[ \t]*([^\r\n]*)/im', $rawHeaders, $matches);
+                $this->checkRateLimit($status, trim(end($matches[1]) ?: ''));
+            }
+            return ['url' => $url, 'status' => $status, 'location' => $metadata[2][0],
                 'body' => substr($output, 0, $metadata[0][1])];
         } finally {
+            if ($responseHeaders !== false) {
+                unlink($responseHeaders);
+            }
             unlink($jar);
         }
+    }
+
+    private function checkRateLimit(int $status, string $retryAfter): void
+    {
+        if ($status !== 429) {
+            return;
+        }
+        $now = time();
+        $headerDate = $retryAfter === '' ? false : strtotime($retryAfter, $now);
+        $seconds = ctype_digit($retryAfter) ? (int) $retryAfter : ($headerDate === false ? 300 : $headerDate - $now);
+        throw new CarAPIVWRateLimit(max(60, min($seconds, PHP_INT_MAX - $now - 60)));
     }
 
     private function runCurl(array $arguments, string $input = ''): string

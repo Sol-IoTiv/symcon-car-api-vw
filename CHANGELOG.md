@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5
+
+- Optionaler automatischer Abruf mit einem in der Instanz einstellbaren Intervall von 5 bis 120 Minuten.
+- Pausiert bei VW-Abrufbegrenzungen und wartet auf eine erneute Anmeldung, wenn die Sitzung abgelaufen ist.
+
 ## 0.4
 
 - Zeigt verfügbare Reichweite, Ladestatus, Ladeleistung, Restladezeit, Steckerstatus, Akkutemperatur, Ladeart, Lademodus, Kilometerstand, Inspektionsintervall und aktive Warnleuchten in Symcon an.

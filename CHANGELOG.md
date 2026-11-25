@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7
+
+- Richtet den automatischen Abruf an der Uhrzeit aus. Im Fünf-Minuten-Takt sind die Abrufe zur Minute 00, 05, 10 und so weiter fällig.
+
 ## 0.6
 
 - Zeigt den VW-Anmeldestatus und bei neuen Anmeldungen die maskierte Volkswagen ID. Die Schaltfläche für die Anmeldung ist bei aktiver Sitzung oder ausstehendem E-Mail-Code deaktiviert.

@@ -14,7 +14,7 @@ Ein erfolgreicher Abruf liefert den zuletzt bei VW verfügbaren Fahrzeugzustand.
 
 ## Automatischer Abruf
 
-In der Instanzkonfiguration kann der automatische Abruf eingeschaltet und ein Intervall von 5 bis 120 Minuten eingestellt werden. Der Schalter ist standardmäßig aus, das voreingestellte Intervall beträgt 5 Minuten. Der manuelle Abruf bleibt verfügbar. Bei einer VW-Antwort mit HTTP 429 wartet das Modul gemäß `Retry-After` oder bei fehlender Angabe mindestens 5 Minuten bis zum nächsten Abruf.
+In der Instanzkonfiguration kann der automatische Abruf eingeschaltet und ein Intervall von 5 bis 120 Minuten eingestellt werden. Der Schalter ist standardmäßig aus, das voreingestellte Intervall beträgt 5 Minuten. Bei diesem Intervall orientiert sich der Abruf an der Uhr und ist zur vollen Stunde sowie um `:05`, `:10`, `:15` und so weiter fällig. Der manuelle Abruf bleibt verfügbar. Bei einer VW-Antwort mit HTTP 429 wartet das Modul gemäß `Retry-After` oder bei fehlender Angabe mindestens 5 Minuten bis zum nächsten Abruf.
 
 Die Implementierung orientiert sich am Webabruf der MIT-lizenzierten Integration [Volkswagen Connect von Rafael Hutter](https://github.com/rafaelhutter/ha-volkswagen-connect).
 

@@ -39,7 +39,7 @@ class CarAPIVWWeb extends IPSModule
     {
         parent::ApplyChanges();
         if (!$this->ReadPropertyBoolean('TestEnabled')) {
-            $this->SetTimerInterval('VwPoll', 0);
+            $this->schedulePoll();
             return;
         }
         $this->RegisterVariableInteger('StateOfCharge', 'Ist-SoC', '~Intensity.100', 10);
@@ -73,18 +73,38 @@ class CarAPIVWWeb extends IPSModule
             }
             $position += 10;
         }
-        $minutes = max(5, min(120, $this->ReadPropertyInteger('PollIntervalMinutes')));
-        $this->SetTimerInterval('VwPoll', $this->ReadPropertyBoolean('AutoPollEnabled') ? $minutes * 60000 : 0);
+        $this->schedulePoll();
     }
 
     public function Poll(): void
     {
-        if (!$this->ReadPropertyBoolean('TestEnabled') || !$this->ReadPropertyBoolean('AutoPollEnabled')
-            || $this->ReadAttributeString('VwCookies') === '[]' || $this->ReadAttributeString('VwChallenge') !== ''
-            || $this->ReadAttributeInteger('PollBlockedUntil') > time()) {
+        try {
+            if ($this->ReadPropertyBoolean('TestEnabled') && $this->ReadPropertyBoolean('AutoPollEnabled')
+                && $this->ReadAttributeString('VwCookies') !== '[]' && $this->ReadAttributeString('VwChallenge') === ''
+                && $this->ReadAttributeInteger('PollBlockedUntil') <= time()) {
+                $this->ReadCharging();
+            }
+        } finally {
+            $this->schedulePoll();
+        }
+    }
+
+    private function schedulePoll(): void
+    {
+        if (!$this->ReadPropertyBoolean('TestEnabled') || !$this->ReadPropertyBoolean('AutoPollEnabled')) {
+            $this->SetTimerInterval('VwPoll', 0);
             return;
         }
-        $this->ReadCharging();
+        $this->SetTimerInterval('VwPoll', $this->nextPollDelay(microtime(true)));
+    }
+
+    private function nextPollDelay(float $now): int
+    {
+        $interval = max(5, min(120, $this->ReadPropertyInteger('PollIntervalMinutes'))) * 60;
+        $offset = (int) date('Z', (int) $now);
+        $next = (floor(($now + $offset) / $interval) + 1) * $interval - $offset;
+        // Symcon starts the countdown when the current timer call finishes.
+        return max(1, (int) ceil(($next - $now) * 1000));
     }
 
     public function GetConfigurationForm(): string

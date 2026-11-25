@@ -235,7 +235,8 @@ class CarAPIVWWeb extends IPSModule
     {
         $diagnosis = [];
         $status = $this->useSession(function (CarAPIVWWebClient $client) use (&$diagnosis): string {
-            $data = $this->readChargingData($client, $this->vin());
+            $vin = $this->vin();
+            $data = $this->readChargingData($client, $vin);
             $captured = $data['batteryStatus']['carCapturedTimestamp'] ?? null;
             $diagnosis = [
                 'Fahrzeugzeit' => is_string($captured) && preg_match('/^\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:\d{2})$/D', $captured)
@@ -243,6 +244,11 @@ class CarAPIVWWeb extends IPSModule
                 'Ladestatus' => $this->displayStatus($data['chargingStatus']['chargingState'] ?? null),
                 'Steckerstatus' => $this->displayStatus($data['plugStatus']['plugConnectionState'] ?? null),
                 'Ladeziel-Felder' => $this->chargeTargetFields($data)
+            ];
+            $settings = $client->inspectChargingSettings($vin);
+            $diagnosis['Ladeeinstellungen'] = [
+                'HTTP' => $settings['status'],
+                'Ladeziel-Felder' => $this->chargeTargetFields($settings['data'])
             ];
             return 'VW-Ladeziel geprüft.';
         });

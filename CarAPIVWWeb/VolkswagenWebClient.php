@@ -120,6 +120,13 @@ final class CarAPIVWWebClient
         return $this->vehicleData('vw-de', $vin, 'maintenance/status');
     }
 
+    public function inspectChargingSettings(string $vin): array
+    {
+        $response = $this->vehicleResponse('vwag-weconnect', $vin, 'charging/settings');
+        $data = $response['status'] === 200 ? json_decode($response['body'], true) : null;
+        return ['status' => $response['status'], 'data' => is_array($data) ? $data : []];
+    }
+
     public function warningLights(string $vin): ?int
     {
         $data = $this->vehicleData('vwag-weconnect', $vin, 'warninglights/last');

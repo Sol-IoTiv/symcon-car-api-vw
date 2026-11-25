@@ -1,12 +1,10 @@
 {
-    "id": "{143F6F5D-971D-9E2F-40D5-80B614BC994A}",
-    "name": "CarAPIVW",
-    "author": "Siegfried Pesendorfer",
-    "url": "https://github.com/pesensie/symcon-car-api-vw",
-    "compatibility": {
-        "version": "7.1"
-    },
-    "version": "0.1",
-    "build": 0,
-    "date": 0
+  "id": "{143F6F5D-971D-9E2F-40D5-80B614BC994A}",
+  "name": "CarAPIVW",
+  "author": "Siegfried Pesendorfer",
+  "url": "https://github.com/Sol-IoTiv/symcon-car-api-vw",
+  "compatibility": {"version": "7.1"},
+  "version": "0.2",
+  "build": 0,
+  "date": 0
 }

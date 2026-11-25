@@ -1,8 +1,11 @@
 # Changelog
 
-## [0.1] – 2025‑06‑23
-### Hinzugefügt
-- Erstimplementierung: Login zur VW-Group-API (User/Passwort)
-- Unterstützung für Marken: VW, Audi, Skoda, Seat, Cupra
-- Abruf von SoC, Reichweite, Ladestratus
-- Debug-Ausgabe im Symcon-Log
+## 0.2
+
+- Manueller Ladeabruf für den Volkswagen ID.3 über myVolkswagen mit Anzeige des Ist-SoC und des Abrufstatus.
+- Der alte Passwort-Token-Login und die Markenumschaltung wurden durch den Volkswagen-Weblogin ersetzt.
+- Das Navigationsziel wird als Diagnosewert angezeigt.
+
+## 0.1
+
+- Erster Entwurf der Modulstruktur und des Verbindungstests.

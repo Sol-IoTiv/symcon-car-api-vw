@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4
+
+- Zeigt verfügbare Reichweite, Ladestatus, Ladeleistung, Restladezeit, Steckerstatus, Akkutemperatur, Ladeart, Lademodus, Kilometerstand, Inspektionsintervall und aktive Warnleuchten in Symcon an.
+- Zeigt den Ziel-SoC, sofern die Webschnittstelle ihn in den Ladeeinstellungen liefert.
+
 ## 0.3
 
 - Verwendet vorhandenes System-cURL mit HTTP/2, wenn die PHP-Erweiterung des Symcon-Servers kein HTTP/2 anbietet.

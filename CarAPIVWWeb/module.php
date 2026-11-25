@@ -4,6 +4,21 @@ require_once __DIR__ . '/VolkswagenWebClient.php';
 
 class CarAPIVWWeb extends IPSModule
 {
+    private const DISPLAY_NAMES = [
+        'ElectricRange' => 'Elektrische Restreichweite',
+        'ChargingState' => 'Ladestatus',
+        'ChargingPower' => 'Ladeleistung',
+        'RemainingChargingTime' => 'Restladezeit',
+        'PlugConnection' => 'Steckerstatus',
+        'BatteryTemperature' => 'Akkutemperatur',
+        'ChargingType' => 'Ladeart (AC/DC)',
+        'ChargingMode' => 'Lademodus',
+        'Odometer' => 'Kilometerstand',
+        'InspectionDays' => 'Inspektion in Tagen',
+        'InspectionDistance' => 'Inspektion in Kilometern',
+        'WarningLights' => 'Aktive Warnleuchten'
+    ];
+
     public function Create(): void
     {
         parent::Create();
@@ -29,7 +44,8 @@ class CarAPIVWWeb extends IPSModule
         $this->RegisterVariableString('FetchStatus', 'Abrufstatus', '', 70);
 
         $vin = $this->vin();
-        if ($this->ReadAttributeString('ConfiguredVIN') !== $vin) {
+        $changedVehicle = $this->ReadAttributeString('ConfiguredVIN') !== $vin;
+        if ($changedVehicle) {
             $this->WriteAttributeString('ConfiguredVIN', $vin);
             $this->SetValue('StateOfCharge', 0);
             $this->SetValue('StateOfChargeAvailable', false);
@@ -41,6 +57,14 @@ class CarAPIVWWeb extends IPSModule
         $this->SetValue('VehicleTarget', 'unbekannt');
         if ($this->GetValue('FetchStatus') === '') {
             $this->SetValue('FetchStatus', 'Bereit für den manuellen Test.');
+        }
+        $position = 80;
+        foreach (self::DISPLAY_NAMES as $ident => $name) {
+            $this->RegisterVariableString($ident, $name, '', $position);
+            if ($changedVehicle || $this->GetValue($ident) === '') {
+                $this->SetValue($ident, 'unbekannt');
+            }
+            $position += 10;
         }
     }
 
@@ -80,7 +104,8 @@ class CarAPIVWWeb extends IPSModule
             if ($client->cookies() === [] || $this->ReadAttributeString('VwChallenge') !== '') {
                 throw new RuntimeException('Bitte zuerst die VW-Anmeldung abschließen.');
             }
-            $battery = $client->charging($vin);
+            $data = $client->charging($vin);
+            $battery = $data['batteryStatus'];
             $soc = $this->percentage($battery['currentSOC_pct'] ?? null);
             if ($soc === null) {
                 throw new RuntimeException('VW hat keinen gültigen Ist-SoC geliefert.');
@@ -94,8 +119,81 @@ class CarAPIVWWeb extends IPSModule
             $this->SetValue('VehicleReportedAt', $captured);
             $this->SetValue('FetchedAt', time());
             $this->SetValue('StateOfChargeAvailable', true);
-            return 'Ladedaten empfangen.';
+            return $this->displayAdditionalData($client, $vin, $data);
         }, false, true);
+    }
+
+    private function displayAdditionalData(CarAPIVWWebClient $client, string $vin, array $data): string
+    {
+        $battery = $data['batteryStatus'];
+        $charging = $data['chargingStatus'] ?? [];
+        $plug = $data['plugStatus'] ?? [];
+        $settings = $data['chargingSettings'] ?? [];
+        $temperature = $battery['temperatureHvBattery_K'] ?? null;
+        $target = $this->percentage($settings['targetSOC_pct'] ?? null);
+        $messages = ['Ladedaten empfangen.'];
+
+        $this->SetValue('VehicleTarget', $target === null ? 'unbekannt' : $target . ' %');
+        $values = [
+            'ElectricRange' => $this->measurement($battery['cruisingRangeElectric_km'] ?? null, 'km'),
+            'ChargingState' => $this->displayStatus($charging['chargingState'] ?? null),
+            'ChargingPower' => $this->measurement($charging['chargePower_kW'] ?? null, 'kW', 1),
+            'RemainingChargingTime' => $this->measurement($charging['remainingChargingTimeToComplete_min'] ?? null, 'min'),
+            'PlugConnection' => $this->displayStatus($plug['plugConnectionState'] ?? null),
+            'BatteryTemperature' => is_numeric($temperature) && $temperature > 0
+                ? $this->measurement((float) $temperature - 273.15, '°C', 1) : 'unbekannt',
+            'ChargingType' => $this->displayStatus($charging['chargeType'] ?? null),
+            'ChargingMode' => $this->displayStatus($charging['chargeMode'] ?? null)
+        ];
+
+        try {
+            $maintenance = $client->maintenance($vin);
+        } catch (RuntimeException $error) {
+            $maintenance = [];
+            $messages[] = 'Servicedaten: ' . $error->getMessage() . '.';
+        }
+        $values['Odometer'] = $this->measurement($maintenance['mileage_km'] ?? null, 'km');
+        $values['InspectionDays'] = $this->measurement($maintenance['inspectionDue_days'] ?? null, 'Tage');
+        $values['InspectionDistance'] = $this->measurement($maintenance['inspectionDue_km'] ?? null, 'km');
+
+        try {
+            $warningLights = $client->warningLights($vin);
+        } catch (RuntimeException $error) {
+            $warningLights = null;
+            $messages[] = 'Warnleuchten: ' . $error->getMessage() . '.';
+        }
+        $values['WarningLights'] = $warningLights === null ? 'unbekannt' : (string) $warningLights;
+        foreach ($values as $ident => $value) {
+            $this->SetValue($ident, $value);
+        }
+        return implode(' ', $messages);
+    }
+
+    private function measurement($value, string $unit, int $decimals = 0): string
+    {
+        if (!is_numeric($value) || !is_finite((float) $value)) {
+            return 'unbekannt';
+        }
+        return number_format((float) $value, $decimals, ',', '.') . ' ' . $unit;
+    }
+
+    private function displayStatus($value): string
+    {
+        if (!is_string($value) || trim($value) === '') {
+            return 'unbekannt';
+        }
+        return match (strtolower($value)) {
+            'invalid', 'unknown' => 'unbekannt',
+            'ac', 'dc' => strtoupper($value),
+            'connected' => 'Angesteckt',
+            'disconnected' => 'Nicht angesteckt',
+            'notreadyforcharging' => 'Nicht ladebereit',
+            'readyforcharging' => 'Ladebereit',
+            'charging' => 'Lädt',
+            'chargepurposereached' => 'Ladeziel erreicht',
+            'manual' => 'Manuell',
+            default => $value
+        };
     }
 
     public function ClearSession(): string

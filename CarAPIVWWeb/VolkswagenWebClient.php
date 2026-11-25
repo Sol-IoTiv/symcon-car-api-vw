@@ -81,13 +81,13 @@ final class CarAPIVWWebClient
 
     public function charging(string $vin): array
     {
-        $response = $this->chargingResponse($vin);
+        $response = $this->vehicleResponse('vwag-weconnect', $vin, 'charging/status');
         if (in_array($response['status'], [301, 302, 303, 307, 308, 401, 412, 428], true)) {
             $challenge = $this->finishLogin($this->follow($this->request($this->loginUrl())));
             if ($challenge !== null) {
                 throw new RuntimeException('VW verlangt eine erneute Anmeldung im Modulformular.');
             }
-            $response = $this->chargingResponse($vin);
+            $response = $this->vehicleResponse('vwag-weconnect', $vin, 'charging/status');
         }
         if ($response['status'] !== 200) {
             throw new RuntimeException('VW-Ladeabruf fehlgeschlagen (HTTP ' . $response['status'] . ').');
@@ -97,13 +97,38 @@ final class CarAPIVWWebClient
             throw new RuntimeException('VW hat keinen Akkustatus geliefert. Ist die FIN dem Konto zugeordnet?');
         }
 
-        return $data['batteryStatus'];
+        return $data;
     }
 
-    private function chargingResponse(string $vin): array
+    public function maintenance(string $vin): array
     {
-        $url = self::PORTAL . '/app/authproxy/vwag-weconnect/proxy/vehicles/' . rawurlencode($vin)
-            . '/charging/status?gdc=myvw-wcar-prod&resourceHost=myvw-vcf-prod';
+        return $this->vehicleData('vw-de', $vin, 'maintenance/status');
+    }
+
+    public function warningLights(string $vin): ?int
+    {
+        $data = $this->vehicleData('vwag-weconnect', $vin, 'warninglights/last');
+        $lights = $data['warningLights'] ?? null;
+        return is_array($lights) && array_is_list($lights) ? count($lights) : null;
+    }
+
+    private function vehicleData(string $service, string $vin, string $path): array
+    {
+        $response = $this->vehicleResponse($service, $vin, $path);
+        if ($response['status'] !== 200) {
+            throw new RuntimeException('HTTP ' . $response['status']);
+        }
+        $data = json_decode($response['body'], true)['data'] ?? null;
+        if (!is_array($data)) {
+            throw new RuntimeException('keine Fahrzeugdaten');
+        }
+        return $data;
+    }
+
+    private function vehicleResponse(string $service, string $vin, string $path): array
+    {
+        $url = self::PORTAL . '/app/authproxy/' . $service . '/proxy/vehicles/' . rawurlencode($vin)
+            . '/' . $path . '?gdc=myvw-wcar-prod&resourceHost=myvw-vcf-prod';
         $csrf = '';
         foreach ($this->cookies() as $cookie) {
             $parts = explode("\t", $cookie, 7);

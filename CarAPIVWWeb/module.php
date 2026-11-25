@@ -2,7 +2,7 @@
 
 require_once __DIR__ . '/VolkswagenWebClient.php';
 
-class CarAPIVW extends IPSModule
+class CarAPIVWWeb extends IPSModule
 {
     public function Create(): void
     {

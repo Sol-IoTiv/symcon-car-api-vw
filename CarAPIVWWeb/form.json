@@ -6,11 +6,12 @@
     {"type": "NumberSpinner", "name": "PollIntervalMinutes", "caption": "Abrufintervall", "suffix": "Minuten", "minimum": 5, "maximum": 120}
   ],
   "actions": [
+    {"type": "Label", "name": "SessionStatus", "caption": "Bei VW nicht angemeldet"},
     {"type": "ValidationTextBox", "name": "LoginEmail", "caption": "E-Mail der Volkswagen ID"},
     {"type": "PasswordTextBox", "name": "LoginSecret", "caption": "VW-Passwort"},
-    {"type": "Button", "caption": "Bei VW anmelden", "onClick": "echo SCAVW_Login($id, $LoginEmail, $LoginSecret);"},
+    {"type": "Button", "name": "LoginButton", "caption": "Bei VW anmelden", "onClick": "echo SCAVW_Login($id, $LoginEmail, $LoginSecret);"},
     {"type": "PasswordTextBox", "name": "EmailCode", "caption": "VW-E-Mail-Code"},
-    {"type": "Button", "caption": "Code bestätigen", "onClick": "echo SCAVW_ConfirmLogin($id, $EmailCode);"},
+    {"type": "Button", "name": "ConfirmButton", "caption": "Code bestätigen", "onClick": "echo SCAVW_ConfirmLogin($id, $EmailCode);"},
     {"type": "Button", "caption": "Ladedaten abrufen", "onClick": "echo SCAVW_ReadCharging($id);"},
     {"type": "Button", "caption": "Lokale Sitzung löschen", "onClick": "echo SCAVW_ClearSession($id);"}
   ]

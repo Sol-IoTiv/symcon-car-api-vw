@@ -6,7 +6,7 @@ Das Modul fragt den Ladezustand eines Volkswagen ID.3 direkt bei der Webschnitts
 
 1. Diese Bibliothek über Module Control einbinden und eine Instanz `Car API VW` unter `Auto` anlegen.
 2. Den VW-Test aktivieren, die FIN hinterlegen und die Einstellungen übernehmen.
-3. Mit der Volkswagen ID anmelden. Einen gegebenenfalls angeforderten E-Mail-Code im Formular bestätigen. Das Passwort und der Code werden für den jeweiligen Anmeldeschritt entgegengenommen. Symcon speichert die Sitzung als Instanzattribut.
+3. Mit der Volkswagen ID anmelden. Einen gegebenenfalls angeforderten E-Mail-Code im Formular bestätigen. Die Instanz zeigt den Anmeldestatus an und sperrt die Login-Felder bei aktiver Sitzung. Für neue Anmeldungen speichert Symcon neben der Sitzung eine maskierte E-Mail-Adresse. Passwort und Code werden nur beim jeweiligen Anmeldeschritt verarbeitet.
 4. `Ladedaten abrufen` klicken und den Akku-SoC mit dem Fahrzeug vergleichen. Der manuelle Abruf zeigt zusätzlich die verfügbaren Lade-, Stecker- und Servicedaten sowie die Anzahl aktiver Warnleuchten. Fehlende Felder stehen auf `unbekannt`.
 5. Für den Test des Ziel-SoC das Ladelimit am Fahrzeug ändern und erneut abfragen. Das Modul zeigt das Ladelimit an, wenn VW es in den Ladeeinstellungen mitsendet. Das von VW gemeldete Navigationsziel erscheint separat als Diagnosewert.
 

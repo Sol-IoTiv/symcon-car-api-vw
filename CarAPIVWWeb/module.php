@@ -28,6 +28,8 @@ class CarAPIVWWeb extends IPSModule
         $this->RegisterPropertyInteger('PollIntervalMinutes', 5);
         $this->RegisterAttributeString('VwCookies', '[]');
         $this->RegisterAttributeString('VwChallenge', '');
+        $this->RegisterAttributeString('VwLoginState', 'legacy');
+        $this->RegisterAttributeString('VwMaskedEmail', '');
         $this->RegisterAttributeString('ConfiguredVIN', '');
         $this->RegisterAttributeInteger('PollBlockedUntil', 0);
         $this->RegisterTimer('VwPoll', 0, 'SCAVW_Poll(' . $this->InstanceID . ');');
@@ -85,14 +87,88 @@ class CarAPIVWWeb extends IPSModule
         $this->ReadCharging();
     }
 
+    public function GetConfigurationForm(): string
+    {
+        $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true, 512, JSON_THROW_ON_ERROR);
+        $changes = $this->loginFields();
+        foreach ($form['actions'] as &$action) {
+            $name = $action['name'] ?? '';
+            if (isset($changes[$name])) {
+                $action = array_replace($action, $changes[$name]);
+            }
+        }
+        unset($action);
+        return json_encode($form, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+    }
+
+    private function loginFields(): array
+    {
+        $enabled = $this->ReadPropertyBoolean('TestEnabled');
+        $active = $enabled && $this->isSignedIn();
+        $challenge = json_decode($this->ReadAttributeString('VwChallenge'), true);
+        $pending = $enabled && ($challenge['requestedAt'] ?? 0) >= time() - 600;
+        $showLogin = $enabled && !$active && !$pending;
+        $email = $this->ReadAttributeString('VwMaskedEmail');
+        $status = match (true) {
+            !$enabled => 'VW-Test ist ausgeschaltet',
+            $active => $email === '' ? 'Bei VW angemeldet' : 'Bei VW angemeldet als ' . $email,
+            $pending => 'VW-Anmeldung wartet auf den E-Mail-Code',
+            is_array($challenge) => 'VW-E-Mail-Code abgelaufen. Bitte erneut anmelden.',
+            default => 'Bei VW nicht angemeldet'
+        };
+        return [
+            'SessionStatus' => ['caption' => $status],
+            'LoginEmail' => ['enabled' => $showLogin],
+            'LoginSecret' => ['enabled' => $showLogin],
+            'LoginButton' => ['enabled' => $showLogin],
+            'EmailCode' => ['enabled' => $pending],
+            'ConfirmButton' => ['enabled' => $pending]
+        ];
+    }
+
+    private function isSignedIn(): bool
+    {
+        if ($this->ReadAttributeString('VwCookies') === '[]' || $this->ReadAttributeString('VwChallenge') !== '') {
+            return false;
+        }
+        $state = $this->ReadAttributeString('VwLoginState');
+        return $state === 'signedIn' || ($state === 'legacy' && $this->ReadPropertyBoolean('TestEnabled')
+            && $this->GetValue('FetchedAt') > 0);
+    }
+
+    private function refreshLoginFields(array $before): void
+    {
+        foreach ($this->loginFields() as $field => $parameters) {
+            foreach ($parameters as $key => $value) {
+                if ($before[$field][$key] !== $value) {
+                    $this->UpdateFormField($field, $key, $value);
+                    if ($key === 'enabled' && !$value && in_array($field, ['LoginEmail', 'LoginSecret', 'EmailCode'], true)) {
+                        $this->UpdateFormField($field, 'value', '');
+                    }
+                }
+            }
+        }
+    }
+
+    private function maskEmail(string $email): string
+    {
+        $domain = substr(strrchr($email, '@'), 1);
+        $suffix = strrchr($domain, '.') ?: '';
+        return '****@' . strtolower($domain[0]) . '***' . strtolower($suffix);
+    }
+
     public function Login(string $Email, string $Password): string
     {
+        if ($this->isSignedIn()) {
+            return 'Bei VW ist bereits eine Sitzung aktiv.';
+        }
         if (!filter_var(trim($Email), FILTER_VALIDATE_EMAIL) || $Password === '') {
             return 'Bitte E-Mail-Adresse und Passwort der Volkswagen ID eingeben.';
         }
         return $this->useSession(function (CarAPIVWWebClient $client) use ($Email, $Password): string {
-            $this->WriteAttributeString('VwChallenge', '');
+            $this->resetLoginState();
             $challenge = $client->login(trim($Email), $Password);
+            $this->WriteAttributeString('VwMaskedEmail', $this->maskEmail(trim($Email)));
             return $this->recordChallenge($challenge);
         }, true);
     }
@@ -122,6 +198,7 @@ class CarAPIVWWeb extends IPSModule
                 throw new RuntimeException('Bitte zuerst die VW-Anmeldung abschließen.');
             }
             $data = $client->charging($vin);
+            $this->WriteAttributeString('VwLoginState', 'signedIn');
             $battery = $data['batteryStatus'];
             $soc = $this->percentage($battery['currentSOC_pct'] ?? null);
             if ($soc === null) {
@@ -224,13 +301,14 @@ class CarAPIVWWeb extends IPSModule
             return 'Die Instanz bearbeitet gerade eine VW-Anfrage.';
         }
         try {
-            $this->WriteAttributeString('VwCookies', '[]');
-            $this->WriteAttributeString('VwChallenge', '');
+            $before = $this->loginFields();
+            $this->resetLoginState();
             $message = 'Lokale VW-Sitzung gelöscht.';
             if ($this->ReadPropertyBoolean('TestEnabled')) {
                 $this->SetValue('StateOfChargeAvailable', false);
                 $this->SetValue('FetchStatus', $message);
             }
+            $this->refreshLoginFields($before);
             return $message;
         } finally {
             IPS_SemaphoreLeave($semaphore);
@@ -247,7 +325,13 @@ class CarAPIVWWeb extends IPSModule
             return 'Die Instanz bearbeitet gerade eine VW-Anfrage.';
         }
         $client = null;
+        $before = null;
         try {
+            $before = $this->loginFields();
+            if ($newSession && !$before['LoginButton']['enabled']) {
+                $message = $this->isSignedIn() ? 'Bei VW ist bereits eine Sitzung aktiv.' : 'Bitte zuerst den VW-E-Mail-Code bestätigen.';
+                return $message;
+            }
             if ($this->ReadAttributeInteger('PollBlockedUntil') > time()) {
                 $message = 'VW begrenzt gerade die Anfragen (HTTP 429). Der Abruf pausiert.';
                 return $message;
@@ -260,8 +344,7 @@ class CarAPIVWWeb extends IPSModule
             $message = $error->getMessage();
         } catch (CarAPIVWLoginRequired $error) {
             $client = null;
-            $this->WriteAttributeString('VwCookies', '[]');
-            $this->WriteAttributeString('VwChallenge', '');
+            $this->resetLoginState();
             $this->SetValue('StateOfChargeAvailable', false);
             $message = $error->getMessage();
         } catch (RuntimeException $error) {
@@ -280,6 +363,9 @@ class CarAPIVWWeb extends IPSModule
                     $this->WriteAttributeString('VwCookies', json_encode($client->cookies(), JSON_INVALID_UTF8_SUBSTITUTE));
                 }
                 $this->SetValue('FetchStatus', $message);
+                if ($before !== null) {
+                    $this->refreshLoginFields($before);
+                }
             } finally {
                 IPS_SemaphoreLeave($semaphore);
             }
@@ -291,11 +377,20 @@ class CarAPIVWWeb extends IPSModule
     {
         if ($challenge === null) {
             $this->WriteAttributeString('VwChallenge', '');
+            $this->WriteAttributeString('VwLoginState', 'signedIn');
             return 'VW-Anmeldung abgeschlossen. Du kannst die Ladedaten abrufen.';
         }
         $challenge['requestedAt'] = time();
         $this->WriteAttributeString('VwChallenge', json_encode($challenge, JSON_INVALID_UTF8_SUBSTITUTE));
         return 'Bitte den VW-E-Mail-Code bestätigen.';
+    }
+
+    private function resetLoginState(): void
+    {
+        $this->WriteAttributeString('VwCookies', '[]');
+        $this->WriteAttributeString('VwChallenge', '');
+        $this->WriteAttributeString('VwLoginState', 'signedOut');
+        $this->WriteAttributeString('VwMaskedEmail', '');
     }
 
     private function vin(): string

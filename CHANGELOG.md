@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6
+
+- Zeigt den VW-Anmeldestatus und bei neuen Anmeldungen die maskierte Volkswagen ID. Die Schaltfläche für die Anmeldung ist bei aktiver Sitzung oder ausstehendem E-Mail-Code deaktiviert.
+
 ## 0.5
 
 - Optionaler automatischer Abruf mit einem in der Instanz einstellbaren Intervall von 5 bis 120 Minuten.

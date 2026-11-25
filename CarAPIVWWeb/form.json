@@ -1,6 +1,6 @@
 {
   "elements": [
-    {"type": "CheckBox", "name": "TestEnabled", "caption": "VW-Test aktivieren"},
+    {"type": "CheckBox", "name": "TestEnabled", "caption": "Car API VW aktivieren"},
     {"type": "ValidationTextBox", "name": "VehicleVIN", "caption": "Fahrgestellnummer (FIN)"},
     {"type": "CheckBox", "name": "AutoPollEnabled", "caption": "Automatischen Abruf einschalten"},
     {"type": "NumberSpinner", "name": "PollIntervalMinutes", "caption": "Abrufintervall", "suffix": "Minuten", "minimum": 5, "maximum": 120}

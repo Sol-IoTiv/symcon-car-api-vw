@@ -103,8 +103,8 @@ class CarAPIVWWeb extends IPSModule
         $interval = max(5, min(120, $this->ReadPropertyInteger('PollIntervalMinutes'))) * 60;
         $offset = (int) date('Z', (int) $now);
         $next = (floor(($now + $offset) / $interval) + 1) * $interval - $offset;
-        // Symcon starts the countdown when the current timer call finishes.
-        return max(1, (int) ceil(($next - $now) * 1000));
+        // Symcon reports timer starts at second precision. Leave a second so the timer cannot start before the slot.
+        return (int) ceil(($next - $now) * 1000) + 1000;
     }
 
     public function GetConfigurationForm(): string
@@ -130,7 +130,7 @@ class CarAPIVWWeb extends IPSModule
         $showLogin = $enabled && !$active && !$pending;
         $email = $this->ReadAttributeString('VwMaskedEmail');
         $status = match (true) {
-            !$enabled => 'VW-Test ist ausgeschaltet',
+            !$enabled => 'Car API VW ist ausgeschaltet',
             $active => $email === '' ? 'Bei VW angemeldet' : 'Bei VW angemeldet als ' . $email,
             $pending => 'VW-Anmeldung wartet auf den E-Mail-Code',
             is_array($challenge) => 'VW-E-Mail-Code abgelaufen. Bitte erneut anmelden.',
@@ -338,7 +338,7 @@ class CarAPIVWWeb extends IPSModule
     private function useSession(callable $operation, bool $newSession = false, bool $reading = false): string
     {
         if (!$this->ReadPropertyBoolean('TestEnabled')) {
-            return 'Bitte den VW-Test aktivieren und die Einstellungen übernehmen.';
+            return 'Bitte Car API VW aktivieren und die Einstellungen übernehmen.';
         }
         $semaphore = 'CarAPIVW-' . $this->InstanceID;
         if (!IPS_SemaphoreEnter($semaphore, 0)) {

@@ -127,6 +127,28 @@ final class CarAPIVWWebClient
         return ['status' => $response['status'], 'data' => is_array($data) ? $data : []];
     }
 
+    public function inspectParkingPosition(string $vin): array
+    {
+        $response = $this->vehicleResponse('vwag-weconnect', $vin, 'parkingposition');
+        $json = json_decode($response['body'], true);
+        $code = $json['code'] ?? null;
+        $lat = false;
+        $lon = false;
+        if ($response['status'] === 200 && is_array($json)) {
+            array_walk_recursive($json, static function ($value, $key) use (&$lat, &$lon): void {
+                if (is_numeric($value)) {
+                    $lat = $lat || (in_array($key, ['latitude', 'lat'], true) && abs((float) $value) <= 90);
+                    $lon = $lon || (in_array($key, ['longitude', 'lon', 'lng'], true) && abs((float) $value) <= 180);
+                }
+            });
+        }
+        return [
+            'HTTP' => $response['status'],
+            'VW-Code' => is_int($code) ? $code : null,
+            'Koordinaten vorhanden' => $lat && $lon
+        ];
+    }
+
     public function warningLights(string $vin): ?int
     {
         $data = $this->vehicleData('vwag-weconnect', $vin, 'warninglights/last');

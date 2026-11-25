@@ -255,6 +255,18 @@ class CarAPIVWWeb extends IPSModule
         return json_encode(['Status' => $status] + $diagnosis, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
     }
 
+    public function InspectParkingPosition(): string
+    {
+        $diagnosis = [];
+        $status = $this->useSession(function (CarAPIVWWebClient $client) use (&$diagnosis): string {
+            $vin = $this->vin();
+            $this->readChargingData($client, $vin);
+            $diagnosis = $client->inspectParkingPosition($vin);
+            return 'VW-Parkposition geprüft.';
+        });
+        return json_encode(['Status' => $status] + $diagnosis, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+    }
+
     private function readChargingData(CarAPIVWWebClient $client, string $vin): array
     {
         if (!preg_match('/^[A-HJ-NPR-Z0-9]{17}$/D', $vin)) {

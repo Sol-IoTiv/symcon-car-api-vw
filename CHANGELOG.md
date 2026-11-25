@@ -3,6 +3,7 @@
 ## 0.7
 
 - Richtet den automatischen Abruf an der Uhrzeit aus. Im Fünf-Minuten-Takt sind die Abrufe zur Minute 00, 05, 10 und so weiter fällig.
+- Ergänzt einen gezielten Diagnoseaufruf für Ladeziel-Felder in der myVolkswagen-Antwort.
 
 ## 0.6
 

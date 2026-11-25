@@ -211,13 +211,7 @@ class CarAPIVWWeb extends IPSModule
     {
         return $this->useSession(function (CarAPIVWWebClient $client): string {
             $vin = $this->vin();
-            if (!preg_match('/^[A-HJ-NPR-Z0-9]{17}$/D', $vin)) {
-                throw new RuntimeException('Bitte eine gültige FIN in der Instanz speichern.');
-            }
-            if ($client->cookies() === [] || $this->ReadAttributeString('VwChallenge') !== '') {
-                throw new RuntimeException('Bitte zuerst die VW-Anmeldung abschließen.');
-            }
-            $data = $client->charging($vin);
+            $data = $this->readChargingData($client, $vin);
             $this->WriteAttributeString('VwLoginState', 'signedIn');
             $battery = $data['batteryStatus'];
             $soc = $this->percentage($battery['currentSOC_pct'] ?? null);
@@ -235,6 +229,52 @@ class CarAPIVWWeb extends IPSModule
             $this->SetValue('StateOfChargeAvailable', true);
             return $this->displayAdditionalData($client, $vin, $data);
         }, false, true);
+    }
+
+    public function InspectChargeTarget(): string
+    {
+        $diagnosis = [];
+        $status = $this->useSession(function (CarAPIVWWebClient $client) use (&$diagnosis): string {
+            $data = $this->readChargingData($client, $this->vin());
+            $captured = $data['batteryStatus']['carCapturedTimestamp'] ?? null;
+            $diagnosis = [
+                'Fahrzeugzeit' => is_string($captured) && preg_match('/^\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:\d{2})$/D', $captured)
+                    ? $captured : null,
+                'Ladestatus' => $this->displayStatus($data['chargingStatus']['chargingState'] ?? null),
+                'Steckerstatus' => $this->displayStatus($data['plugStatus']['plugConnectionState'] ?? null),
+                'Ladeziel-Felder' => $this->chargeTargetFields($data)
+            ];
+            return 'VW-Ladeziel geprüft.';
+        });
+        return json_encode(['Status' => $status] + $diagnosis, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+    }
+
+    private function readChargingData(CarAPIVWWebClient $client, string $vin): array
+    {
+        if (!preg_match('/^[A-HJ-NPR-Z0-9]{17}$/D', $vin)) {
+            throw new RuntimeException('Bitte eine gültige FIN in der Instanz speichern.');
+        }
+        if ($client->cookies() === [] || $this->ReadAttributeString('VwChallenge') !== '') {
+            throw new RuntimeException('Bitte zuerst die VW-Anmeldung abschließen.');
+        }
+        return $client->charging($vin);
+    }
+
+    private function chargeTargetFields(array $data): array
+    {
+        $fields = [];
+        foreach ($data as $key => $value) {
+            if (is_string($key) && preg_match('/^[a-z][a-z0-9_]{0,39}$/iD', $key) === 1
+                && preg_match('/target.*(?:soc|charge)|(?:soc|charge).*target|charg(?:e|ing)_?(?:limit|settings)|(?:max|upper).*soc|soc.*(?:max|upper)/i', $key) === 1) {
+                $fields[$key][] = ['Typ' => gettype($value), 'Prozent' => $this->percentage($value)];
+            }
+            if (is_array($value)) {
+                foreach ($this->chargeTargetFields($value) as $name => $matches) {
+                    $fields[$name] = array_merge($fields[$name] ?? [], $matches);
+                }
+            }
+        }
+        return $fields;
     }
 
     private function displayAdditionalData(CarAPIVWWebClient $client, string $vin, array $data): string
